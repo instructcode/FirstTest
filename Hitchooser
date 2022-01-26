@@ -1,0 +1,352 @@
+function check_hit_queue(funct) {
+	console.log("derp1");
+	var requestURL = "https://worker.mturk.com/tasks?end_signin=1&format=json&openid.pape.max_auth_age=43200&openid.identity=https%3A%2F%2Fwww.amazon.com%2Fap%2Fid%2Famzn1.account.AFSI3KN7UXXMKPAVDGE3Y5ECI3TQ&stashKey=a484b3c0-931f-4e3d-b522-9a73bfaf8fd1&openid.claimed_id=https%3A%2F%2Fwww.amazon.com%2Fap%2Fid%2Famzn1.account.AFSI3KN7UXXMKPAVDGE3Y5ECI3TQ";
+	var requesttask = new XMLHttpRequest();
+	requesttask.open("GET", requestURL);
+	requesttask.responseType = 'json';
+	requesttask.onload = funct;
+	requesttask.send();
+}
+
+function eliminate_database_hits_for_collection (database_of_hits) {
+	var bad_hits = retrieve_bad_hits_from_storage();
+	var temp = Object.assign([], database_of_hits);
+	for (var i in database_of_hits){
+		for (var j in bad_hits) {
+		    Object.values(bad_hits[j]).includes(database_of_hits[i].hit_set_id) ? delete temp[i] : null;
+		}
+	}
+	for (var i = temp.length - 1; i >= 0; i--){
+		if(temp[i] == undefined) { temp.splice(i,1); } 
+	}
+	return temp;
+}
+
+function filter_hits_by_stats(database_of_hits, stats_filter_array, fresh_hit_time_store) {
+	function timeparse(last_update) {
+		var pindex = last_update.lastIndexOf('.');
+		var lindex = last_update.lastIndexOf(':');
+		var index = last_update.indexOf(':');
+		var ti = last_update.indexOf('T');
+		var uhr = last_update.slice(ti +1, index);
+		var minuten = last_update.slice(index +1, lindex);
+		var secunden = last_update.slice(lindex + 1, pindex);
+		return [uhr, minuten, secunden];
+	}
+	var new_freshest_hit_store = timeparse(database_of_hits[0].last_updated_time);
+	if (fresh_hit_time_store == timeparse(database_of_hits[0].last_updated_time)) {
+		return [null, new_freshest_hit_store];}
+	var time_for_index = timeparse(database_of_hits[0].last_updated_time);
+	var timestring = "" + time_for_index[0] +":"+ time_for_index[1] +":"+ time_for_index[2];
+	var timeobj = new Date();
+	timeobj.setHours(time_for_index[0], time_for_index[1], time_for_index[2], 000);
+	timeobj.setMinutes(timeobj.getMinutes() - 5);
+	for (var i in database_of_hits) {
+		var temptime = new Date();
+		var temp_index = timeparse(database_of_hits[i].last_updated_time);
+		temptime.setHours(temp_index[0], temp_index[1], temp_index[2], 000);
+		if (temptime < timeobj) {
+			return [database_of_hits.slice(0, i), new_freshest_hit_store];
+		}
+	}
+	return [database_of_hits, new_freshest_hit_store];
+}
+
+function hits_as_string_from_storage() {
+	var defrost = localStorage.getItem("mturksnatcher");
+	return defrost;
+}
+
+function retrieve_bad_hits_from_storage () {
+	var defrost = localStorage.getItem("mturksnatcher");
+	var thaw = JSON.parse(defrost);
+	return thaw;
+}
+
+
+function append_single_hit_to_bad_hit_storage(bad_hit_data, bad_hits) {
+	bad_hit_data.push.apply(bad_hit_data, bad_hits);
+	return bad_hit_data;
+}
+
+
+function add_bad_hits_to_storage(hits) {
+	var defrost = localStorage.getItem("mturksnatcher");
+	console.log("0a");
+	console.log(hits);
+	console.log("0a");
+	var temp = [];
+	if (hits.length >= 1 && typeof hits[0]['hit_set_id'] != "undefined") {
+		for(var i in hits) {
+			if(defrost.search(hits[i]['hit_set_id'])<0){ temp.push(hits[i]);}
+		}
+		console.log(temp);
+		console.log("0b");
+		var thaw = JSON.parse(defrost);
+		thaw.push.apply(thaw, temp);
+		var hard_freeze = JSON.stringify(thaw);
+		console.log(hard_freeze);
+		localStorage.setItem("mturksnatcher", hard_freeze);
+	}
+}
+
+
+function convert_hits_to_database_format2 (hits_json) {
+	var database_of_hits = [];
+	for (var i in hits_json) {
+		var hit = {};
+		hit.hit_set_id = hits_json[i].project.hit_set_id;
+		hit.requester_id = hits_json[i].project.requester_id;
+		hit.requester_name = hits_json[i].project.requester_name;
+		hit.title = hits_json[i].project.title;
+		hit.description = hits_json[i].description;
+		hit.last_updated_time = hits_json[i].project.last_updated_time;
+		hit.monetary_reward = hits_json[i].project.monetary_reward.amount_in_dollars;
+		hit.amount_in_dollars = hits_json[i].project.monetary_reward.amount_in_dollars; 
+		hit.project_tasks_url = hits_json[i].project_tasks_url;
+		hit.task_url = hits_json[i].task_url;
+		database_of_hits.push(hit);
+	}
+	return database_of_hits;
+}
+
+function convert_hits_to_database_format1 (hits_json) {
+	var database_of_hits = [];
+	for (var i in hits_json) {
+		var hit = {};
+		hit.hit_set_id = hits_json[i].hit_set_id;
+		hit.requester_id = hits_json[i].requester_id;
+		hit.requester_name = hits_json[i].requester_name;
+		hit.title = hits_json[i].title;
+		hit.accept_project_task_url = hits_json[i].accept_project_task_url;
+		hit.creation_time = hits_json[i].creation_time;
+		hit.description = hits_json[i].description;
+		hit.last_updated_time = hits_json[i].last_updated_time;
+		hit.monetary_reward = hits_json[i].monetary_reward.amount_in_dollars;
+		hit.amount_in_dollars = hits_json[i].monetary_reward.amount_in_dollars; 
+		hit.project_tasks_url = hits_json[i].project_tasks_url;
+		hit.requester_url = hits_json[i].requester_url;
+		database_of_hits.push(hit);
+	}
+	return database_of_hits;
+}
+
+function panda(url) {
+			var url1 = 'https://worker.mturk.com';
+			var ext = '.json?ref=w_pl_prvw';
+			var strlen = ext.length;
+			var url2 = url.slice(0,-strlen);
+			var finalurl = url1 + url2;
+			return finalurl;
+		}
+
+
+
+
+function retrieve_time () {
+	var d = Date();
+	var uhr = d.getHours();
+	var minunten = d.getMinutes();
+	var secunden = d.getSeconds();
+	return [uhr, minuten, secunden];
+}
+
+
+
+
+var error_object = [];
+var error_time = [0,0];
+
+function error_queue(bool) {
+	if (error_object.length >=2) {  error_object.splice(0,1);  }
+	if (bool) {
+		error_object.push(bool);
+		error_time[0] = [0, new Date ()];
+	} else {	
+		error_object.push(new Date());
+		error_time[0] = [500 + error_time[0], new Date()];
+	}
+}
+
+function error_acc() {
+	return error_time[0];
+}
+
+
+
+function get_hits_from_top(funct) {
+	console.log("derp2");
+	var requestURL = "https://worker.mturk.com/?filters%5Bsearch_term%5D=&page_size=100&filters%5Bqualified%5D=&filters%5Bmasters%5D=false&sort=updated_desc&sort=updated_desc&format=json&filters%5Bmin_reward%5D=2.40&page_number=1";
+	var xhr = new XMLHttpRequest();
+	xhr.open("GET", requestURL); 
+	xhr.responseType = 'json';
+	xhr.onload = funct;
+	xhr.send();
+}
+
+
+function cycler() {
+		console.log("derp3");
+	if (this.status == 429) {  
+		console.log("derp3a");
+		error_queue(false);
+		setTimeout(function () {
+			get_hits_from_top(cycler);		
+		 }, waiting + error_acc);
+	} else {
+		console.log("derp3b");
+		if (this.response.results.length<=0 || typeof this.response.results != 'object' ){
+			setTimeout(function(){get_hits_from_top(cycler)}, waiting);
+		} else {
+			console.log("derp3c");
+			error_queue(true);
+			console.log(this.response.results);
+			jhits_coll = Object.assign([],this.response.results);
+			var container = filter_hits_by_stats(jhits_coll, start_fresh_hit);
+			jhits_coll = container[0];
+			start_freshest_hit = container[1];
+			jhits_coll = convert_hits_to_database_format1(jhits_coll);
+			remove_spam_hits(jhits_coll);
+			remove_duplicate_requester(jhits_coll); 
+			jhits_coll = eliminate_database_hits_for_collection(jhits_coll);
+			panda_or_continue(jhits_coll);
+		}
+	}
+}
+
+function remove_spam_hits(hits) {
+	var black_list = ["20bn","Sonny Bonds","Noah","JHU Decision Making Lab","Acme Data Collection"];
+	for (var i = hits.length-1; i >=0; i--){
+		for (var j in black_list) {
+			if(hits[i]['requester_name']==black_list[j]) {
+				hits.splice(i,1);
+				break;
+			}
+		}
+	}
+
+}
+
+
+function bad_hits_handler() {
+	console.log("progress");
+	console.log(this.response.tasks);
+	if (this.status == 429) {  
+		error_queue(false);
+		setTimeout(function () {
+			get_hits_from_top(cycler);		
+		 }, waiting + error_acc);
+	} else {
+		var temp_hits = this.response.tasks;
+		console.log(temp_hits);
+		setTimeout(function () {
+			console.log("hmmmmmmmm");
+			console.log(temp_hits);
+			var badhits = convert_hits_to_database_format2(temp_hits);
+			console.log("hmmmmmmm");
+			console.log(badhits);
+			console.log("hmmmmmmm");
+			add_bad_hits_to_storage(badhits);
+			add_requester_to_temp(badhits);
+			get_hits_from_top(cycler);
+		}, waiting);
+
+	}
+}
+
+
+function add_requester_to_temp(hits){
+	var defrost = localStorage.getItem("mturktemp");
+	var thaw = JSON.parse(defrost);
+	for (var i  = hits.length-1; i >=0; i--){
+		for (var j in thaw){
+			if(hits[i]['requester_name']==thaw[j]) {
+				hits.splice(i,1);
+				break;
+			}
+		}
+	}
+	if(hits.length >= 1){
+		for (var i in hits){	
+			thaw.push(hits[i]['requester_name']);
+		}
+		var hard_freeze = JSON.stringify(thaw);
+		localStorage.setItem("mturktemp", hard_freeze);
+	}
+	
+}
+
+
+function remove_duplicate_requester(hits) {
+	var defrost = localStorage.getItem("mturktemp");
+	var thaw = JSON.parse(defrost);
+	for (var i = hits.length-1; i >=0; i--){
+		for (var j in thaw) {
+			if(hits[i]['requester_name']==thaw[j]) {
+				hits.splice(i,1);
+				break;
+			}
+		}
+	}
+
+}
+
+
+
+
+function panda_or_continue(hits) {
+		console.log("derp4");
+	if (this.status == 429) { 
+		error_queue(false);
+		setTimeout(function () {
+			if (hits.length != 0) {
+				console.log("0a");
+				var temp1url = panda(hits[0]['accept_project_task_url'])
+				setTimeout(function () {
+				var xhrtemp = new XMLHttpRequest();
+				xhrtemp.open("GET", temp1url);
+				var tempo = Object.assign([], hits);
+				tempo.splice(0,1);
+				xhrtemp.onload = panda_or_continue(tempo);
+				xhrtemp.send()}, waiting);
+			} else {
+				setTimeout(function(){get_hits_from_top(cycler);}, waiting);
+			}		
+		 }, waiting + error_acc);
+	} else {
+		error_queue(true);
+		console.log(hits);
+		if (hits.length >= 1) {
+			console.log("1a");
+			var temp1url = panda(hits[0]['accept_project_task_url'])
+			setTimeout(function () {
+			var xhrtemp = new XMLHttpRequest();
+			xhrtemp.open("GET", temp1url);
+			var tempo = Object.assign([], hits);
+			tempo.splice(0,1);
+			xhrtemp.onload = panda_or_continue(tempo);
+			xhrtemp.send()}, waiting);
+		} else {
+			setTimeout(function (){
+				console.log("3a");
+				check_hit_queue(bad_hits_handler);
+			},waiting);
+		}
+	}
+}
+
+var tempor = localStorage.getItem("mturksnatcher")
+var thawor = JSON.parse(tempor);
+
+if(localStorage.getItem("mturktemp") == null) { localStorage.setItem("mturktemp", JSON.stringify([]));}
+if(thawor.length >= 4000) { localStorage.setItem("mturksnatcher", JSON.stringify([]));}
+
+var waiting = 1400;
+var start_fresh_hit = "00:00:00";
+var freshest_hit = [];
+var jcollection = {};
+var jhits_coll = [];
+get_hits_from_top(cycler);
+
+//local storages keeps putting anything in the hits queue, meaning there are innumerable duplicates of any caught hits.  Need to add a cleanser of duplicates to manage that.  Also othr lists grow to unmanageable sizes.  Those need to be managed too
+
